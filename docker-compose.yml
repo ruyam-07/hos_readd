@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # Main application
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/hospital_readmission
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DEBUG=true
+      - LOG_LEVEL=INFO
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./models:/app/models
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL database
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=hospital_readmission
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Database migration service (optional)
+  migration:
+    build: .
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/hospital_readmission
+    command: ["python", "-c", "from app.core.database import engine, Base; import asyncio; asyncio.run(engine.dispose())"]
+    restart: "no"
+
+  # Redis CLI for debugging (optional)
+  redis-cli:
+    image: redis:7-alpine
+    depends_on:
+      - redis
+    command: ["redis-cli", "-h", "redis"]
+    profiles:
+      - debug
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    driver: bridge
